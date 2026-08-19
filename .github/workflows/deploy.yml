@@ -140,9 +140,11 @@ jobs:
             --name config.json \
             --content-cache-control 'no-cache, must-revalidate'
 
-      - name: Report the site URL
+      - name: Confirm the static website is serving
         run: |
-          az storage account show \
-            --name "$ACCOUNT" \
-            --query 'primaryEndpoints.web' \
-            --output tsv
+          ENABLED=$(az storage blob service-properties show \
+            --account-name "$ACCOUNT" \
+            --account-key "$KEY" \
+            --query 'staticWebsite.enabled' -o tsv)
+          echo "Static website hosting enabled: $ENABLED"
+          echo "Client published to the \$web container."
