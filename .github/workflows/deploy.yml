@@ -1,0 +1,148 @@
+name: Reelix CI/CD
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+env:
+  NODE_VERSION: '20.x'
+
+jobs:
+  build-and-test:
+    name: Build and test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: api/package-lock.json
+
+      - name: Install dependencies
+        working-directory: api
+        run: npm ci
+
+      - name: Run the API test suite
+        working-directory: api
+        run: npm test
+
+      - name: Check the client for syntax errors
+        run: |
+          for file in $(find web/assets/js -name '*.js'); do
+            node --check "$file"
+          done
+
+      - name: Package the API
+        working-directory: api
+        run: |
+          npm prune --omit=dev
+          zip -r ../api-package.zip . -x '.env' -x 'tests/*' -x '.localstore*/*'
+
+      - name: Upload the API artefact
+        uses: actions/upload-artifact@v4
+        with:
+          name: api-package
+          path: api-package.zip
+          retention-days: 5
+
+  deploy-api:
+    name: Deploy API to App Service
+    needs: build-and-test
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download the API artefact
+        uses: actions/download-artifact@v4
+        with:
+          name: api-package
+
+      - name: Publish to App Service
+        uses: azure/webapps-deploy@v3
+        with:
+          app-name: ${{ secrets.AZURE_WEBAPP_NAME }}
+          publish-profile: ${{ secrets.AZURE_WEBAPP_PUBLISH_PROFILE }}
+          package: api-package.zip
+
+      - name: Wait for the health endpoint
+        run: |
+          URL="https://${{ secrets.AZURE_WEBAPP_NAME }}.azurewebsites.net/api/system/health"
+          echo "Probing $URL"
+          for attempt in $(seq 1 20); do
+            CODE=$(curl -s -o /dev/null -w '%{http_code}' "$URL" || echo 000)
+            echo "attempt $attempt -> HTTP $CODE"
+            if [ "$CODE" = "200" ]; then
+              echo "API is healthy."
+              exit 0
+            fi
+            sleep 15
+          done
+          echo "The API did not report healthy in time."
+          exit 1
+
+  deploy-client:
+    name: Deploy client to Blob static website
+    needs: deploy-api
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    env:
+      ACCOUNT: ${{ secrets.AZURE_STORAGE_ACCOUNT }}
+      KEY: ${{ secrets.AZURE_STORAGE_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Point the client at the deployed API
+        run: |
+          cat > web/config.json <<JSON
+          {
+            "apiBaseUrl": "https://${{ secrets.AZURE_WEBAPP_NAME }}.azurewebsites.net",
+            "environmentLabel": "azure"
+          }
+          JSON
+          cat web/config.json
+
+      - name: Enable static website hosting
+        run: |
+          az storage blob service-properties update \
+            --account-name "$ACCOUNT" \
+            --account-key "$KEY" \
+            --static-website \
+            --index-document index.html \
+            --404-document index.html
+
+      - name: Upload the static site
+        run: |
+          az storage blob upload-batch \
+            --account-name "$ACCOUNT" \
+            --account-key "$KEY" \
+            --destination '$web' \
+            --source web \
+            --overwrite
+
+      - name: Stop the browser caching the entry point
+        run: |
+          az storage blob update \
+            --account-name "$ACCOUNT" \
+            --account-key "$KEY" \
+            --container-name '$web' \
+            --name index.html \
+            --content-cache-control 'no-cache, must-revalidate'
+
+          az storage blob update \
+            --account-name "$ACCOUNT" \
+            --account-key "$KEY" \
+            --container-name '$web' \
+            --name config.json \
+            --content-cache-control 'no-cache, must-revalidate'
+
+      - name: Report the site URL
+        run: |
+          az storage account show \
+            --name "$ACCOUNT" \
+            --query 'primaryEndpoints.web' \
+            --output tsv

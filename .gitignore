@@ -1,0 +1,40 @@
+# Dependencies
+node_modules/
+
+# Environment and secrets - never commit these
+.env
+.env.*
+!.env.example
+*.local.md
+DEPLOYMENT.local.md
+*.publishsettings
+*.pubxml
+
+# Local storage adapter output
+.localstore/
+.localstore-test/
+
+# Build and packaging artefacts
+api-package.zip
+*.zip
+dist/
+
+# Logs
+npm-debug.log*
+*.log
+
+# Editors and OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Working notes, not part of the submission
+docs/
+
+# Slide deck goes to Blackboard, not here
+presentation/
+
+# Coursework tooling, not part of the solution
+scripts/make-video-script.js

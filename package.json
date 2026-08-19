@@ -1,0 +1,20 @@
+{
+  "name": "reelix",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Reelix - a cloud-native video sharing service (COM769 Coursework 2)",
+  "type": "module",
+  "scripts": {
+    "install:api": "npm --prefix api install",
+    "dev:api": "npm --prefix api run dev",
+    "dev:web": "node scripts/serve-web.js 5173",
+    "start": "npm --prefix api start",
+    "test": "npm --prefix api test",
+    "db:init": "npm --prefix api run db:init",
+    "db:seed": "npm --prefix api run db:seed",
+    "db:verify": "npm --prefix api run db:verify"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}
